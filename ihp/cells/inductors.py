@@ -194,6 +194,8 @@ def inductor3(
 
 
 if __name__ == "__main__":
+    from gdsfactory.difftest import xor
+
     from ihp import PDK
     from ihp.cells import fixed
 
