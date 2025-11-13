@@ -27,7 +27,7 @@ LAYERS = {
 @gf.cell
 def rsil(
     width: float = 0.8,
-    length: float = 10.0,
+    length: float = 0.5,
     resistance: float | None = None,
     model: str = "rsil",
 ) -> Component:
@@ -519,24 +519,23 @@ def rhigh(
 if __name__ == "__main__":
     from gdsfactory.difftest import xor
 
-    from ihp import PDK, cells
+    from ihp import PDK
+    from ihp.cells import fixed
 
     PDK.activate()
 
     # Test the components
-    c0 = cells.rsil()  # original
+    c0 = fixed.rsil()  # original
     c1 = rsil()  # New
     c = xor(c0, c1)
     c.show()
 
-    # c0 = cells.rppd()  # original
+    # c0 = fixed.rppd()  # original
     # c1 = rppd()  # New
-    # # c = gf.grid([c0, c1], spacing=100)
     # c = xor(c0, c1)
     # c.show()
 
-    # c0 = cells.rhigh()  # original
+    # c0 = fixed.rhigh()  # original
     # c1 = rhigh()  # New
-    # # c = gf.grid([c0, c1], spacing=100)
     # c = xor(c0, c1)
     # c.show()
