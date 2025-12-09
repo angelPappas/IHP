@@ -230,20 +230,19 @@ def rfcmim(
 if __name__ == "__main__":
     from gdsfactory.difftest import xor
 
-    from ihp import PDK
-    from ihp.cells import fixed
+    from ihp import PDK, cells2
 
     PDK.activate()
 
     # Test the components
-    # c0 = fixed.cmim()  # original
-    # c1 = cmim()  # New
-    # c = gf.grid([c0, c1], spacing=100)
-    # c = xor(c0, c1)
-    # c.show()
-
-    c0 = fixed.rfcmim()  # original
-    c1 = rfcmim()  # New
+    c0 = cells2.cmim()  # original
+    c1 = cmim()  # New
     # c = gf.grid([c0, c1], spacing=100)
     c = xor(c0, c1)
     c.show()
+
+    # c0 = fixed.rfcmim()  # original
+    # c1 = rfcmim()  # New
+    # # c = gf.grid([c0, c1], spacing=100)
+    # c = xor(c0, c1)
+    # c.show()
