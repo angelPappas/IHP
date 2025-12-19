@@ -159,15 +159,23 @@ def rfcmim(
     length: float = 10.0,
     capacitance: float | None = None,
     model: str = "rfcmim",
+    layer_activ: LayerSpec = "Activdrawing",
+    layer_cont: LayerSpec = "Contdrawing",
+    layer_metal1: LayerSpec = "Metal1drawing",
+    layer_metal1_pin: LayerSpec = "Metal1pin",
+    layer_metal2: LayerSpec = "Metal2drawing",
+    layer_psd: LayerSpec = "pSDdrawing",
     layer_metal3: LayerSpec = "Metal3drawing",
-    layer_metal4: LayerSpec = "Metal4drawing",
-    layer_metal5: LayerSpec = "Metal5drawing",
     layer_mim: LayerSpec = "MIMdrawing",
-    layer_via4: LayerSpec = "Via4drawing",
+    layer_pwell: LayerSpec = "PWelldrawing",
+    layer_metal4: LayerSpec = "Metal4drawing",
+    layer_text: LayerSpec = "TEXTdrawing",
+    layer_metal5: LayerSpec = "Metal5drawing",
+    layer_metal5_pin: LayerSpec = "Metal5pin",
     layer_topmetal1: LayerSpec = "TopMetal1drawing",
+    layer_topmetal1_pin: LayerSpec = "TopMetal1pin",
     layer_topvia1: LayerSpec = "TopVia1drawing",
-    layer_rfpad: LayerSpec = "RFPaddrawing",
-    layer_cap_mark: LayerSpec = "MemCapdrawing",
+    layer_via_mim: LayerSpec = "Vmimdrawing",
 ) -> Component:
     """Create an RF MIM capacitor with optimized layout.
 
@@ -193,11 +201,15 @@ def rfcmim(
 
     # Design rules for RF capacitor
     mim_min_size = 5.0  # Larger minimum for RF
-    plate_enclosure = 0.3
-    via_enclosure = 0.15
-    cont_size = 0.26
-    cont_spacing = 0.36
+    via_dim = 0.42  # Extracted from PDK
+    via_spacing = 0.44 # Extracted from PDK
+    via_extension = 0.78 # Extracted from PDK
     cap_density = 1.5  # fF/um^2
+    activ_external_extension = 5.6
+    activ_internal_extension = 3.6
+    shield_width = width + 4.0
+    shield_length = length + 4.0
+    bottom_plate_length = length + 2.0
     shield_enclosure = 2.0
 
     # Validate dimensions
@@ -213,147 +225,104 @@ def rfcmim(
     if capacitance is None:
         capacitance = width * length * cap_density
 
-    # Ground shield (Metal3)
-    shield_width = width + 2 * shield_enclosure
-    shield_length = length + 2 * shield_enclosure
-
-    ground_shield = gf.components.rectangle(
-        size=(shield_length, shield_width),
-        layer=layer_metal3,
-        centered=True,
-    )
-    c.add_ref(ground_shield)
-
-    # Bottom plate (Metal4)
-    bottom_plate_width = width + 2 * plate_enclosure
-    bottom_plate_length = length + 2 * plate_enclosure
-
-    bottom_plate = gf.components.rectangle(
-        size=(bottom_plate_length, bottom_plate_width),
-        layer=layer_metal4,
-        centered=True,
-    )
-    c.add_ref(bottom_plate)
-
     # MIM dielectric layer
-    mim_layer = gf.components.rectangle(
+    mim_layer = c << gf.components.rectangle(
         size=(length, width),
         layer=layer_mim,
-        centered=True,
     )
-    c.add_ref(mim_layer)
 
-    # Top plate (Metal5)
-    top_plate = gf.components.rectangle(
-        size=(length, width),
-        layer=layer_metal5,
-        centered=True,
-    )
-    c.add_ref(top_plate)
+    # The top plate is an extension of the via array, so we create it after the vias.
+    # First, the number of vias needs to be defined. They are squares of via_dim, and spacing via_spacing.
+    # Let's assume we have a grid of n_x by n_y vias. The top plate will extend this array by via_extension on each side.
+    # So the length of the top plate will be:
+    # L_top = n_x*via_dim + (n_x-1)*via_spacing + 2*via_extension = 3*n_x*via_dim, for spacing = 2*via_dim and extension = via_dim.
+    # The PDK gives the maximum vias for which the top plate dimensions do not exceed the insulator dimensions by more than 0.115um.
 
-    # Via array for top plate connection (denser for RF)
-    n_vias_x = int((length - 2 * via_enclosure - cont_size) / cont_spacing) + 1
-    n_vias_y = int((width - 2 * via_enclosure - cont_size) / cont_spacing) + 1
+    # Via array for top plate connection
+    n_vias_x = 1
+    n_vias_y = 1
+
+    top_electrode_length = n_vias_x * via_dim + (n_vias_x - 1) * via_spacing + 2 * via_extension
+    top_electrode_width = n_vias_y * via_dim + (n_vias_y - 1) * via_spacing + 2 * via_extension
+
+    # The addition of a grid point results in extension by via_dim + via_spacing
+    # This condition was found empirically to match the PDK layout
+    via_spacing_x = via_spacing
+    via_spacing_y = via_spacing
+    while top_electrode_length + via_dim + via_spacing < length + 0.115:
+        n_vias_x += 1
+        top_electrode_length = n_vias_x * via_dim + (n_vias_x - 1) * via_spacing + 2 * via_extension
+    while top_electrode_length < length:
+        via_spacing_x += 0.005
+        top_electrode_length = n_vias_x * via_dim + (n_vias_x - 1) * via_spacing_x + 2 * via_extension
+
+    while top_electrode_width + via_dim + via_spacing < width + 0.115:
+        n_vias_y += 1
+        top_electrode_width = n_vias_y * via_dim + (n_vias_y - 1) * via_spacing + 2 * via_extension
+    while top_electrode_width < width:
+        via_spacing_y += 0.005
+        top_electrode_width = n_vias_y * via_dim + (n_vias_y - 1) * via_spacing_y + 2 * via_extension
 
     for i in range(n_vias_x):
         for j in range(n_vias_y):
-            x = -length / 2 + via_enclosure + cont_size / 2 + i * cont_spacing
-            y = -width / 2 + via_enclosure + cont_size / 2 + j * cont_spacing
-
+            # The bottom left corner of the top electrode is at (width - top_electrode_width)/2 - 0.005, (length - top_electrode_length)/2 - 0.005
+            x = via_extension + i*(via_dim + via_spacing_x)
+            y = via_extension + j*(via_dim + via_spacing_y)
             via = gf.components.rectangle(
-                size=(cont_size, cont_size),
-                layer=layer_via4,
-                centered=True,
+                size=(via_dim, via_dim),
+                layer=layer_via_mim,
             )
             via_ref = c.add_ref(via)
             via_ref.move((x, y))
 
-    # RF pad connections
-    # Bottom plate pad
-    bottom_pad = gf.components.rectangle(
-        size=(2.0, 2.0),
-        layer=layer_metal4,
+    # Active Drawing
+    activ = c << gf.components.rectangle(
+        size=(length + 2*activ_external_extension, width + 2*activ_external_extension),
+        layer=layer_activ,
     )
-    bottom_pad_ref = c.add_ref(bottom_pad)
-    bottom_pad_ref.move((-(bottom_plate_length / 2 + 1.0), -1.0))
+    activ.xmin = -activ_external_extension
+    activ.ymin = -activ_external_extension
 
-    # Top plate pad
-    top_pad = gf.components.rectangle(
-        size=(2.0, 2.0),
-        layer=layer_topmetal1,
+    c.add_polygon(
+        [
+            (-activ_internal_extension, -activ_internal_extension),
+            (-activ_internal_extension, width + activ_internal_extension),
+            (length + activ_internal_extension, width + activ_internal_extension),
+            (length + activ_internal_extension, width/2 + 1.5),
+            (length + activ_external_extension, width/2 + 1.5),
+            (length + activ_external_extension, width/2 - 1.5),
+            (length + activ_internal_extension, width/2 - 1.5),
+            (length + activ_internal_extension, -activ_internal_extension),
+        ],
+        layer=layer_activ,
     )
-    top_pad_ref = c.add_ref(top_pad)
-    top_pad_ref.move((length / 2 + 1.0, -1.0))
+    # # Add ports
+    # c.add_port(
+    #     name="P1",
+    #     center=(-(bottom_plate_length / 2 + 1.0), 0),
+    #     width=2.0,
+    #     orientation=180,
+    #     layer=layer_metal4,
+    #     port_type="electrical",
+    # )
 
-    # Connect top plate to TopMetal1
-    # Via stack from Metal5 to TopMetal1
-    via5_array = gf.components.rectangle(
-        size=(0.9, 0.9),
-        layer=layer_topvia1,
-        centered=True,
-    )
-    via5_ref = c.add_ref(via5_array)
-    via5_ref.move((length / 2 + 2.0, 0))
+    # c.add_port(
+    #     name="P2",
+    #     center=(length / 2 + 2.0, 0),
+    #     width=2.0,
+    #     orientation=0,
+    #     layer=layer_topmetal1,
+    #     port_type="electrical",
+    # )
 
-    tm1_connect = gf.components.rectangle(
-        size=(2.0, 1.0),
-        layer=layer_topmetal1,
-    )
-    tm1_ref = c.add_ref(tm1_connect)
-    tm1_ref.move((length / 2 + 1.0, -0.5))
-
-    # RF pad marker
-    rf_pad1 = gf.components.rectangle(
-        size=(3.0, 3.0),
-        layer=layer_rfpad,
-        centered=True,
-    )
-    rf_pad1_ref = c.add_ref(rf_pad1)
-    rf_pad1_ref.move((-(bottom_plate_length / 2 + 1.0), 0))
-
-    rf_pad2 = gf.components.rectangle(
-        size=(3.0, 3.0),
-        layer=layer_rfpad,
-        centered=True,
-    )
-    rf_pad2_ref = c.add_ref(rf_pad2)
-    rf_pad2_ref.move((length / 2 + 2.0, 0))
-
-    # Capacitor marker
-    cap_mark = gf.components.rectangle(
-        size=(shield_length, shield_width),
-        layer=layer_cap_mark,
-        centered=True,
-    )
-    c.add_ref(cap_mark)
-
-    # Add ports
-    c.add_port(
-        name="P1",
-        center=(-(bottom_plate_length / 2 + 1.0), 0),
-        width=2.0,
-        orientation=180,
-        layer=layer_metal4,
-        port_type="electrical",
-    )
-
-    c.add_port(
-        name="P2",
-        center=(length / 2 + 2.0, 0),
-        width=2.0,
-        orientation=0,
-        layer=layer_topmetal1,
-        port_type="electrical",
-    )
-
-    c.add_port(
-        name="GND",
-        center=(0, -shield_width / 2),
-        width=shield_length,
-        orientation=270,
-        layer=layer_metal3,
-        port_type="electrical",
-    )
+    # c.add_port(
+    #     name="GND",
+    #     center=(0, -shield_width / 2),
+    #     width=shield_length,
+    #     orientation=270,
+    #     layer=layer_metal3,
+    #     port_type="electrical",
+    # )
 
     # Add metadata
     c.info["model"] = model
@@ -387,7 +356,7 @@ if __name__ == "__main__":
     # c0.show()
     # c1.show()
 
-    # c0_rf = cells2.rfcmim()  # original
+    c0_rf = cells2.rfcmim()  # original
     # c1_rf = rfcmim()  # New
     # c = gf.grid([c0, c1], spacing=100)
     # c_rf = xor(c0_rf, c1_rf)
