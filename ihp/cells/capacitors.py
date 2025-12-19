@@ -402,6 +402,36 @@ def rfcmim(
     metal1_pin.xmin = -activ_external_extension
     metal1_pin.ymin = -activ_external_extension
 
+    # ----------------
+    # Metal 2
+    # ----------------
+    metal2_drawing = c << gf.components.rectangle(
+        size=(length + 2*activ_external_extension, width + 2*activ_external_extension),
+        layer=layer_metal2,
+    )
+    metal2_drawing.xmin = -activ_external_extension
+    metal2_drawing.ymin = -activ_external_extension
+
+
+    # ----------------
+    # pSD
+    # ----------------
+    c.add_polygon(
+        [
+            (-activ_external_extension, width + activ_internal_extension),
+            (-activ_external_extension, -activ_external_extension),
+            (length + activ_external_extension, - activ_external_extension),
+            (length + activ_external_extension, width + activ_external_extension),
+            (-activ_external_extension, width + activ_external_extension),
+            (-activ_external_extension, width + activ_internal_extension),
+            (length + activ_internal_extension, width + activ_internal_extension),
+            (length + activ_internal_extension, -activ_internal_extension),
+            (-activ_internal_extension, -activ_internal_extension),
+            (-activ_internal_extension, width + activ_internal_extension),
+        ],
+        layer=layer_psd,
+    )
+
     # Add ports
     c.add_port(
         name="TIE",
