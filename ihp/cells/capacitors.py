@@ -380,6 +380,7 @@ def rfcmim(
     layer_topmetal1: LayerSpec = "TopMetal1drawing",
     layer_topmetal1_pin: LayerSpec = "TopMetal1pin",
     layer_via_mim: LayerSpec = "Vmimdrawing",
+    feed_width: float = 3,
 ) -> Component:
     """Create an RF MIM capacitor with optimized layout.
 
@@ -397,6 +398,7 @@ def rfcmim(
         layer_topvia1: Via to top metal layer.
         layer_rfpad: RF pad marker layer.
         layer_cap_mark: Capacitor marker layer.
+        feed_width: Width of the port for both plates of the capacitor.
 
     Returns:
         Component with RF MIM capacitor layout.
@@ -476,10 +478,10 @@ def rfcmim(
             (-activ_internal_extension, -activ_internal_extension),
             (-activ_internal_extension, width + activ_internal_extension),
             (length + activ_internal_extension, width + activ_internal_extension),
-            (length + activ_internal_extension, width / 2 + 1.5),
-            (length + activ_external_extension, width / 2 + 1.5),
-            (length + activ_external_extension, width / 2 - 1.5),
-            (length + activ_internal_extension, width / 2 - 1.5),
+            (length + activ_internal_extension, width / 2 + feed_width / 2),
+            (length + activ_external_extension, width / 2 + feed_width / 2),
+            (length + activ_external_extension, width / 2 - feed_width / 2),
+            (length + activ_internal_extension, width / 2 - feed_width / 2),
             (length + activ_internal_extension, -activ_internal_extension),
         ],
         layer=layer_activ,
@@ -533,7 +535,7 @@ def rfcmim(
     pin_placement(
         c,
         activ_external_extension - activ_internal_extension,
-        width / 2 + activ_internal_extension - 1.5,
+        width / 2 + activ_internal_extension - feed_width / 2,
         cont_dim,
         cont_spacing_x,
         cont_spacing_y,
@@ -546,13 +548,13 @@ def rfcmim(
     pin_placement(
         c,
         activ_external_extension - activ_internal_extension,
-        width / 2 + activ_internal_extension - 1.5,
+        width / 2 + activ_internal_extension - feed_width / 2,
         cont_dim,
         cont_spacing_x,
         cont_spacing_y,
         cont_extension,
         length + activ_internal_extension,
-        width / 2 + 1.5,
+        width / 2 + feed_width / 2,
         layer_cont,
     )
 
@@ -700,20 +702,20 @@ def rfcmim(
     metal5_internal.ymin = -metal5_extension
     c.add_polygon(
         [
-            (length + metal5_extension, width / 2 + 1.5),
-            (length + metal5_extension, width / 2 - 1.5),
-            (length + activ_external_extension, width / 2 - 1.5),
-            (length + activ_external_extension, width / 2 + 1.5),
+            (length + metal5_extension, width / 2 + feed_width / 2),
+            (length + metal5_extension, width / 2 - feed_width / 2),
+            (length + activ_external_extension, width / 2 - feed_width / 2),
+            (length + activ_external_extension, width / 2 + feed_width / 2),
         ],
         layer=layer_metal5,
     )
 
     metal5_pin = c << gf.components.rectangle(
-        size=(activ_external_extension - activ_internal_extension, 3.0),
+        size=(activ_external_extension - activ_internal_extension, feed_width),
         layer=layer_metal5_pin,
     )
     metal5_pin.xmin = length + activ_internal_extension
-    metal5_pin.ymin = width / 2 - 1.5
+    metal5_pin.ymin = width / 2 - feed_width / 2
 
     # ----------------
     # Top Metal 1
@@ -736,11 +738,11 @@ def rfcmim(
     top_metal1_internal.ymin = cont_extension
 
     top_metal1_pin = c << gf.components.rectangle(
-        size=(activ_external_extension - activ_internal_extension, 3.0),
+        size=(activ_external_extension - activ_internal_extension, feed_width),
         layer=layer_topmetal1_pin,
     )
     top_metal1_pin.xmin = -activ_external_extension
-    top_metal1_pin.ymin = width / 2 - 1.5
+    top_metal1_pin.ymin = width / 2 - feed_width / 2
 
     # Add ports
     c.add_port(
@@ -761,7 +763,7 @@ def rfcmim(
             length + activ_internal_extension / 2 + activ_external_extension / 2,
             width / 2,
         ),
-        width=3.0,
+        width=feed_width / 2,
         orientation=0,
         layer=layer_metal5_pin,
         port_type="electrical",
@@ -773,7 +775,7 @@ def rfcmim(
             -activ_internal_extension / 2 - activ_external_extension / 2,
             width / 2,
         ),
-        width=3.0,
+        width=feed_width / 2,
         orientation=180,
         layer=layer_topmetal1_pin,
         port_type="electrical",
