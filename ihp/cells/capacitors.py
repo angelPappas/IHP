@@ -45,9 +45,9 @@ def cmim(
     # Design rules
     mim_min_size = 0.5
     via_dim = 0.42  # Extracted from PDK
-    via_spacing = 2*via_dim # Extracted from PDK
-    via_extension = via_dim # Extracted from PDK
-    bottom_plate_extension = 0.6 # Extracted from PDK
+    via_spacing = 2 * via_dim  # Extracted from PDK
+    via_extension = via_dim  # Extracted from PDK
+    bottom_plate_extension = 0.6  # Extracted from PDK
     cap_density = 1.5  # fF/um^2 (example value)
 
     # Validate dimensions
@@ -71,13 +71,15 @@ def cmim(
         size=(bottom_plate_width, bottom_plate_length),
         layer=layer_metal5,
     )
-    bottom_plate.xmin=-bottom_plate_extension
-    bottom_plate.ymin=-bottom_plate_extension
+    bottom_plate.xmin = -bottom_plate_extension
+    bottom_plate.ymin = -bottom_plate_extension
 
     # MIM dielectric layer
-    mim_layer = c << gf.components.rectangle(
-        size=(width, length),
-        layer=layer_mim,
+    c.add_ref(
+        gf.components.rectangle(
+            size=(width, length),
+            layer=layer_mim,
+        )
     )
 
     # The top plate is an extension of the via array, so we create it after the vias.
@@ -95,19 +97,28 @@ def cmim(
     top_electrode_length = 3 * n_vias_y * via_dim
 
     # This condition was found empirically to match the PDK layout
-    while top_electrode_width + 3*via_dim < width + 0.115:
+    while top_electrode_width + 3 * via_dim < width + 0.115:
         n_vias_x += 1
         top_electrode_width = 3 * n_vias_x * via_dim
-    while top_electrode_length + 3*via_dim < length + 0.115:
+    while top_electrode_length + 3 * via_dim < length + 0.115:
         n_vias_y += 1
         top_electrode_length = 3 * n_vias_y * via_dim
-
 
     for i in range(n_vias_x):
         for j in range(n_vias_y):
             # The bottom left corner of the top electrode is at (width - top_electrode_width)/2 - 0.005, (length - top_electrode_length)/2 - 0.005
-            x = (width - top_electrode_width)/2 - 0.005 + via_extension + i*(via_dim + via_spacing)
-            y = (length - top_electrode_length)/2 - 0.005 + via_extension + j*(via_dim + via_spacing)
+            x = (
+                (width - top_electrode_width) / 2
+                - 0.005
+                + via_extension
+                + i * (via_dim + via_spacing)
+            )
+            y = (
+                (length - top_electrode_length) / 2
+                - 0.005
+                + via_extension
+                + j * (via_dim + via_spacing)
+            )
 
             via = gf.components.rectangle(
                 size=(via_dim, via_dim),
@@ -121,13 +132,13 @@ def cmim(
         size=(top_electrode_width, top_electrode_length),
         layer=layer_topmetal1,
     )
-    top_plate.xmin = (width - top_electrode_width)/2 - 0.005
-    top_plate.ymin = (length - top_electrode_length)/2 - 0.005
+    top_plate.xmin = (width - top_electrode_width) / 2 - 0.005
+    top_plate.ymin = (length - top_electrode_length) / 2 - 0.005
 
     # Add ports
     c.add_port(
         name="B",
-        center=(width/2, length/2),
+        center=(width / 2, length / 2),
         width=width + 2 * bottom_plate_extension,
         orientation=0,
         layer=layer_metal5,
@@ -153,6 +164,160 @@ def cmim(
     return c
 
 
+def spacing_update_order(n_spacings, n_increments):
+    if n_increments == 0:
+        return []
+
+    chosen = [n_spacings - 1]
+    if n_increments == 1:
+        return chosen
+
+    n_increments -= 1
+    odd = n_spacings % 2 == 1
+
+    # Centers in index space
+    if odd:
+        left = right = n_spacings // 2
+    else:
+        left = n_spacings // 2 - 1
+        right = left + 1
+
+    center_appended = False
+    # Optional center
+    if n_increments % 2 == 1:
+        chosen.append(left)
+        n_increments -= 1
+        center_appended = True
+        if n_increments == 0:
+            return chosen
+
+    k = n_increments // 2
+
+    # 1️⃣ Maximum step IGNORING index 0
+    step = min(left // k, (n_spacings - 1 - right) // k)
+    step = max(step, 1)
+
+    # 2️⃣ Try normal symmetric placement
+    def generate(start_offset):
+        indices = []
+        for j in range(k):
+            l_idx = left - (start_offset + j * step)
+            r_idx = right + (start_offset + j * step)
+            indices.extend([l_idx, r_idx])
+        return indices
+
+    if center_appended:
+        print(n_spacings, n_increments)
+        start_offset = step
+    else:
+        start_offset = step // 2
+    # Mode A: start at ±step
+    candidates = generate(start_offset=start_offset)
+    print(candidates)
+    if all(i != 0 for i in candidates):
+        chosen.extend(candidates)
+        return chosen
+
+    # 4️⃣ Guaranteed fallback (should never fail in valid geometry)
+    for j in range(1, k + 1):
+        chosen.append(left - j)
+        chosen.append(right + j)
+
+    return chosen
+
+
+def pin_placement(
+    c,
+    length,
+    width,
+    pin_dimension,
+    pin_spacing_x,
+    pin_spacing_y,
+    pin_extension,
+    bottom_left_x,
+    bottom_left_y,
+    pin_layer,
+):
+    n_pin_x = 1
+    n_pin_y = 1
+
+    pin_array_length = (
+        n_pin_x * pin_dimension + (n_pin_x - 1) * pin_spacing_x + 2 * pin_extension
+    )
+    pin_array_width = (
+        n_pin_y * pin_dimension + (n_pin_y - 1) * pin_spacing_y + 2 * pin_extension
+    )
+
+    while pin_array_length + pin_dimension + pin_spacing_x <= length:
+        n_pin_x += 1
+        pin_array_length = (
+            n_pin_x * pin_dimension + (n_pin_x - 1) * pin_spacing_x + 2 * pin_extension
+        )
+    # As long as the expansion is still within the limits
+    while pin_array_length + (n_pin_x - 1) * 0.005 <= length:
+        pin_spacing_x += 0.005
+        pin_array_length = (
+            n_pin_x * pin_dimension + (n_pin_x - 1) * pin_spacing_x + 2 * pin_extension
+        )
+
+    while pin_array_width + pin_dimension + pin_spacing_y <= width:
+        n_pin_y += 1
+        pin_array_width = (
+            n_pin_y * pin_dimension + (n_pin_y - 1) * pin_spacing_y + 2 * pin_extension
+        )
+    while pin_array_width + (n_pin_y - 1) * 0.005 <= width:
+        pin_spacing_y += 0.005
+        pin_array_width = (
+            n_pin_y * pin_dimension + (n_pin_y - 1) * pin_spacing_y + 2 * pin_extension
+        )
+
+    slack_x = round(length - pin_array_length, 3)
+    slack_y = round(width - pin_array_width, 3)
+
+    step = 0.005
+    n_spacings_x = n_pin_x - 1
+    spacings_x = [pin_spacing_x] * n_spacings_x
+    n_spacings_y = n_pin_y - 1
+    spacings_y = [pin_spacing_y] * n_spacings_y
+
+    steps_x = int(round(slack_x / step))
+    order_x = spacing_update_order(n_spacings_x, steps_x)
+    idx = 0
+    for _ in range(steps_x):
+        spacings_x[order_x[idx]] += step
+        idx = (idx + 1) % len(order_x)
+    steps_y = int(round(slack_y / step))
+    order_y = spacing_update_order(n_spacings_y, steps_y)
+    idx = 0
+    for _ in range(steps_y):
+        spacings_y[order_y[idx]] += step
+        idx = (idx + 1) % len(order_y)
+
+    spacings_x.insert(0, 0)  # First via has no spacing before it
+    spacings_y.insert(0, 0)  # First via has no spacing before it
+
+    for i in range(n_pin_x):
+        for j in range(n_pin_y):
+            x = (
+                bottom_left_x
+                + pin_extension
+                + i * pin_dimension
+                + sum(spacings_x[: i + 1])
+            )
+            y = (
+                bottom_left_y
+                + pin_extension
+                + j * pin_dimension
+                + sum(spacings_y[: j + 1])
+            )
+            pin = gf.components.rectangle(
+                size=(pin_dimension, pin_dimension),
+                layer=pin_layer,
+            )
+            pin_ref = c.add_ref(pin)
+            pin_ref.move((x, y))
+
+
 @gf.cell
 def rfcmim(
     width: float = 10.0,
@@ -174,7 +339,6 @@ def rfcmim(
     layer_metal5_pin: LayerSpec = "Metal5pin",
     layer_topmetal1: LayerSpec = "TopMetal1drawing",
     layer_topmetal1_pin: LayerSpec = "TopMetal1pin",
-    layer_topvia1: LayerSpec = "TopVia1drawing",
     layer_via_mim: LayerSpec = "Vmimdrawing",
 ) -> Component:
     """Create an RF MIM capacitor with optimized layout.
@@ -200,42 +364,38 @@ def rfcmim(
     c = Component()
 
     # Design rules for RF capacitor
-    mim_min_size = 5.0  # Larger minimum for RF
     via_dim = 0.42  # Extracted from PDK
-    via_spacing = 0.44 # Extracted from PDK
-    via_extension = 0.78 # Extracted from PDK
-    cont_dim = 0.16 # Contact dimension from PDK
-    cont_spacing_x = 0.185 # Contact spacing from PDK
-    cont_spacing_y = 0.215 # Contact spacing from PDK
-    cont_extension = 0.36 # Contact extension from PDK
-    psd_extra_extension = 0.03 # Additional extension for pSD layer
+    via_spacing = 0.42  # Extracted from PDK
+    via_extension = 0.78  # Extracted from PDK
+    cont_dim = 0.16  # Contact dimension from PDK
+    cont_spacing_x = 0.18  # Contact spacing from PDK 0.185
+    cont_spacing_y = 0.18  # Contact spacing from PDK 0.215
+    cont_extension = 0.36  # Contact extension from PDK
+    psd_extra_extension = 0.03  # Additional extension for pSD layer
     pwell_extension = 3.0
-    cap_density = 1.5  # fF/um^2
     activ_external_extension = 5.6
     activ_internal_extension = 3.6
     metal5_extension = 0.6
-    shield_width = width + 4.0
-    shield_length = length + 4.0
-    bottom_plate_length = length + 2.0
-    shield_enclosure = 2.0
-
-    # Validate dimensions
-    width = max(width, mim_min_size)
-    length = max(length, mim_min_size)
+    caspec = 1.5e-15  # Value from cni.sg13g2.json
+    cpspec = 4.0e-17  # Value from cni.sg13g2.json
+    lwd = 0.01  # um. Value from cni.sg13g2.json
 
     # Grid snap
     grid = 0.005
     width = round(width / grid) * grid
     length = round(length / grid) * grid
 
-    # Calculate capacitance if not provided
-    if capacitance is None:
-        capacitance = width * length * cap_density
+    # Capacitance Calculation
+    leff = length + lwd
+    weff = width + lwd
+    capacitance = leff * weff * caspec + 2.0 * (leff + weff) * cpspec
 
     # MIM dielectric layer
-    mim_layer = c << gf.components.rectangle(
-        size=(length, width),
-        layer=layer_mim,
+    c.add_ref(
+        gf.components.rectangle(
+            size=(length, width),
+            layer=layer_mim,
+        )
     )
 
     # The top plate is an extension of the via array, so we create it after the vias.
@@ -245,48 +405,27 @@ def rfcmim(
     # L_top = n_x*via_dim + (n_x-1)*via_spacing + 2*via_extension = 3*n_x*via_dim, for spacing = 2*via_dim and extension = via_dim.
     # The PDK gives the maximum vias for which the top plate dimensions do not exceed the insulator dimensions by more than 0.115um.
 
-    # Via array for top plate connection
-    n_vias_x = 1
-    n_vias_y = 1
-
-    top_electrode_length = n_vias_x * via_dim + (n_vias_x - 1) * via_spacing + 2 * via_extension
-    top_electrode_width = n_vias_y * via_dim + (n_vias_y - 1) * via_spacing + 2 * via_extension
-
-    # The addition of a grid point results in extension by via_dim + via_spacing
-    # This condition was found empirically to match the PDK layout
-    via_spacing_x = via_spacing
-    via_spacing_y = via_spacing
-    while top_electrode_length + via_dim + via_spacing < length + 0.115:
-        n_vias_x += 1
-        top_electrode_length = n_vias_x * via_dim + (n_vias_x - 1) * via_spacing + 2 * via_extension
-    while top_electrode_length < length:
-        via_spacing_x += 0.005
-        top_electrode_length = n_vias_x * via_dim + (n_vias_x - 1) * via_spacing_x + 2 * via_extension
-
-    while top_electrode_width + via_dim + via_spacing < width + 0.115:
-        n_vias_y += 1
-        top_electrode_width = n_vias_y * via_dim + (n_vias_y - 1) * via_spacing + 2 * via_extension
-    while top_electrode_width < width:
-        via_spacing_y += 0.005
-        top_electrode_width = n_vias_y * via_dim + (n_vias_y - 1) * via_spacing_y + 2 * via_extension
-
-    for i in range(n_vias_x):
-        for j in range(n_vias_y):
-            # The bottom left corner of the top electrode is at (width - top_electrode_width)/2 - 0.005, (length - top_electrode_length)/2 - 0.005
-            x = via_extension + i*(via_dim + via_spacing_x)
-            y = via_extension + j*(via_dim + via_spacing_y)
-            via = gf.components.rectangle(
-                size=(via_dim, via_dim),
-                layer=layer_via_mim,
-            )
-            via_ref = c.add_ref(via)
-            via_ref.move((x, y))
+    pin_placement(
+        c,
+        length,
+        width,
+        via_dim,
+        via_spacing,
+        via_spacing,
+        via_extension,
+        0,
+        0,
+        layer_via_mim,
+    )
 
     # ----------------
     # Active Drawing
     # ----------------
     activ = c << gf.components.rectangle(
-        size=(length + 2*activ_external_extension, width + 2*activ_external_extension),
+        size=(
+            length + 2 * activ_external_extension,
+            width + 2 * activ_external_extension,
+        ),
         layer=layer_activ,
     )
     activ.xmin = -activ_external_extension
@@ -297,10 +436,10 @@ def rfcmim(
             (-activ_internal_extension, -activ_internal_extension),
             (-activ_internal_extension, width + activ_internal_extension),
             (length + activ_internal_extension, width + activ_internal_extension),
-            (length + activ_internal_extension, width/2 + 1.5),
-            (length + activ_external_extension, width/2 + 1.5),
-            (length + activ_external_extension, width/2 - 1.5),
-            (length + activ_internal_extension, width/2 - 1.5),
+            (length + activ_internal_extension, width / 2 + 1.5),
+            (length + activ_external_extension, width / 2 + 1.5),
+            (length + activ_external_extension, width / 2 - 1.5),
+            (length + activ_internal_extension, width / 2 - 1.5),
             (length + activ_internal_extension, -activ_internal_extension),
         ],
         layer=layer_activ,
@@ -310,86 +449,81 @@ def rfcmim(
     # Cont Drawing
     # ----------------
 
-    # Top and bottom extension
-    n_cont_x = 1
-    n_cont_y = 1
+    # Top extension
+    pin_placement(
+        c,
+        length + 2 * activ_external_extension,
+        activ_external_extension - activ_internal_extension,
+        cont_dim,
+        cont_spacing_x,
+        cont_spacing_y,
+        cont_extension,
+        -activ_external_extension,
+        width + activ_internal_extension,
+        layer_cont,
+    )
+    # Bottom extension
+    pin_placement(
+        c,
+        length + 2 * activ_external_extension,
+        activ_external_extension - activ_internal_extension,
+        cont_dim,
+        cont_spacing_x,
+        cont_spacing_y,
+        cont_extension,
+        -activ_external_extension,
+        -activ_external_extension,
+        layer_cont,
+    )
 
-    top_length = n_cont_x * cont_dim + (n_cont_x - 1) * cont_spacing_x + 2 * cont_extension
-    top_width = n_cont_y * cont_dim + (n_cont_y - 1) * cont_spacing_y + 2 * cont_extension
-    # The addition of a grid point results in extension by via_dim + via_spacing
-    # This condition was found empirically to match the PDK layout
-
-    while top_length + cont_dim + cont_spacing_x < length + 2*activ_external_extension + 0.115:
-        n_cont_x += 1
-        top_length = n_cont_x * cont_dim + (n_cont_x - 1) * cont_spacing_x + 2 * cont_extension
-
-    while top_width + cont_dim + cont_spacing_y < activ_external_extension - activ_internal_extension + 0.115:
-        n_cont_y += 1
-        top_width = n_cont_y * cont_dim + (n_cont_y - 1) * cont_spacing_y + 2 * cont_extension
-
-    for i in range(n_cont_x):
-        for j in range(n_cont_y):
-            x = - activ_external_extension + cont_extension + i*(cont_dim + cont_spacing_x)
-            y = width + activ_internal_extension + cont_extension + j*(cont_dim + cont_spacing_y)
-            cont = gf.components.rectangle(
-                size=(cont_dim, cont_dim),
-                layer=layer_cont,
-            )
-            cont_ref = c.add_ref(cont)
-            cont_ref.move((x, y))
-
-            y = - activ_external_extension + cont_extension + j*(cont_dim + cont_spacing_y)
-            cont = gf.components.rectangle(
-                size=(cont_dim, cont_dim),
-                layer=layer_cont,
-            )
-            cont_ref = c.add_ref(cont)
-            cont_ref.move((x, y))
-
-    # Left and right extension, where the gaps between contacts are different than before
-    cont_spacing_x = 0.21 # Contact spacing from PDK
-    cont_spacing_y = 0.185 # Contact spacing from PDK
-    n_cont_x = 1
-    n_cont_y = 1
-
-    top_length = n_cont_x * cont_dim + (n_cont_x - 1) * cont_spacing_x + 2 * cont_extension
-    top_width = n_cont_y * cont_dim + (n_cont_y - 1) * cont_spacing_y + 2 * cont_extension
-    # The addition of a grid point results in extension by via_dim + via_spacing
-    # This condition was found empirically to match the PDK layout
-
-    while top_length + cont_dim + cont_spacing_x < activ_external_extension - activ_internal_extension:
-        n_cont_x += 1
-        top_length = n_cont_x * cont_dim + (n_cont_x - 1) * cont_spacing_x + 2 * cont_extension
-
-    while top_width + cont_dim + cont_spacing_y < width + 2*activ_internal_extension:
-        n_cont_y += 1
-        top_width = n_cont_y * cont_dim + (n_cont_y - 1) * cont_spacing_y + 2 * cont_extension
-
-    for i in range(n_cont_x):
-        for j in range(n_cont_y):
-            x = - activ_external_extension + cont_extension + i*(cont_dim + cont_spacing_x)
-            y = - activ_internal_extension + cont_extension + j*(cont_dim + cont_spacing_y)
-            cont = gf.components.rectangle(
-                size=(cont_dim, cont_dim),
-                layer=layer_cont,
-            )
-            cont_ref = c.add_ref(cont)
-            cont_ref.move((x, y))
-
-            if y < width/2 - 1.5 - cont_extension or y > width/2 + 1.5 + cont_extension:
-                x = length + activ_internal_extension + cont_extension + i*(cont_dim + cont_spacing_x)
-                cont = gf.components.rectangle(
-                    size=(cont_dim, cont_dim),
-                    layer=layer_cont,
-                )
-                cont_ref = c.add_ref(cont)
-                cont_ref.move((x, y))
+    # Left extension
+    pin_placement(
+        c,
+        activ_external_extension - activ_internal_extension,
+        width + 2 * activ_internal_extension,
+        cont_dim,
+        cont_spacing_x,
+        cont_spacing_y,
+        cont_extension,
+        -activ_external_extension,
+        -activ_internal_extension,
+        layer_cont,
+    )
+    # Right bottom extension
+    pin_placement(
+        c,
+        activ_external_extension - activ_internal_extension,
+        width / 2 + activ_internal_extension - 1.5,
+        cont_dim,
+        cont_spacing_x,
+        cont_spacing_y,
+        cont_extension,
+        length + activ_internal_extension,
+        -activ_internal_extension,
+        layer_cont,
+    )
+    # Right top extension
+    pin_placement(
+        c,
+        activ_external_extension - activ_internal_extension,
+        width / 2 + activ_internal_extension - 1.5,
+        cont_dim,
+        cont_spacing_x,
+        cont_spacing_y,
+        cont_extension,
+        length + activ_internal_extension,
+        width / 2 + 1.5,
+        layer_cont,
+    )
 
     # ----------------
     # Metal 1
     # ----------------
     metal1_drawing = c << gf.components.rectangle(
-        size=(length + 2*activ_external_extension, width + 2*activ_external_extension),
+        size=(
+            length + 2 * activ_external_extension,
+            width + 2 * activ_external_extension,
+        ),
         layer=layer_metal1,
     )
     metal1_drawing.xmin = -activ_external_extension
@@ -399,7 +533,10 @@ def rfcmim(
     # Metal 1 pin
     # ----------------
     metal1_pin = c << gf.components.rectangle(
-        size=(length + 2*activ_external_extension, activ_external_extension - activ_internal_extension),
+        size=(
+            length + 2 * activ_external_extension,
+            activ_external_extension - activ_internal_extension,
+        ),
         layer=layer_metal1_pin,
     )
     metal1_pin.xmin = -activ_external_extension
@@ -409,28 +546,60 @@ def rfcmim(
     # Metal 2
     # ----------------
     metal2_drawing = c << gf.components.rectangle(
-        size=(length + 2*activ_external_extension, width + 2*activ_external_extension),
+        size=(
+            length + 2 * activ_external_extension,
+            width + 2 * activ_external_extension,
+        ),
         layer=layer_metal2,
     )
     metal2_drawing.xmin = -activ_external_extension
     metal2_drawing.ymin = -activ_external_extension
-
 
     # ----------------
     # pSD
     # ----------------
     c.add_polygon(
         [
-            (-activ_external_extension - psd_extra_extension, width + activ_internal_extension - psd_extra_extension),
-            (-activ_external_extension - psd_extra_extension, -activ_external_extension - psd_extra_extension),
-            (length + activ_external_extension + psd_extra_extension, - activ_external_extension - psd_extra_extension),
-            (length + activ_external_extension + psd_extra_extension, width + activ_external_extension + psd_extra_extension),
-            (-activ_external_extension - psd_extra_extension, width + activ_external_extension + psd_extra_extension),
-            (-activ_external_extension - psd_extra_extension, width + activ_internal_extension - psd_extra_extension),
-            (length + activ_internal_extension - psd_extra_extension, width + activ_internal_extension - psd_extra_extension),
-            (length + activ_internal_extension - psd_extra_extension, -activ_internal_extension + psd_extra_extension),
-            (-activ_internal_extension + psd_extra_extension, -activ_internal_extension + psd_extra_extension),
-            (-activ_internal_extension + psd_extra_extension, width + activ_internal_extension - psd_extra_extension),
+            (
+                -activ_external_extension - psd_extra_extension,
+                width + activ_internal_extension - psd_extra_extension,
+            ),
+            (
+                -activ_external_extension - psd_extra_extension,
+                -activ_external_extension - psd_extra_extension,
+            ),
+            (
+                length + activ_external_extension + psd_extra_extension,
+                -activ_external_extension - psd_extra_extension,
+            ),
+            (
+                length + activ_external_extension + psd_extra_extension,
+                width + activ_external_extension + psd_extra_extension,
+            ),
+            (
+                -activ_external_extension - psd_extra_extension,
+                width + activ_external_extension + psd_extra_extension,
+            ),
+            (
+                -activ_external_extension - psd_extra_extension,
+                width + activ_internal_extension - psd_extra_extension,
+            ),
+            (
+                length + activ_internal_extension - psd_extra_extension,
+                width + activ_internal_extension - psd_extra_extension,
+            ),
+            (
+                length + activ_internal_extension - psd_extra_extension,
+                -activ_internal_extension + psd_extra_extension,
+            ),
+            (
+                -activ_internal_extension + psd_extra_extension,
+                -activ_internal_extension + psd_extra_extension,
+            ),
+            (
+                -activ_internal_extension + psd_extra_extension,
+                width + activ_internal_extension - psd_extra_extension,
+            ),
         ],
         layer=layer_psd,
     )
@@ -439,7 +608,10 @@ def rfcmim(
     # Metal 3
     # ----------------
     metal3_drawing = c << gf.components.rectangle(
-        size=(length + 2*activ_external_extension, width + 2*activ_external_extension),
+        size=(
+            length + 2 * activ_external_extension,
+            width + 2 * activ_external_extension,
+        ),
         layer=layer_metal3,
     )
     metal3_drawing.xmin = -activ_external_extension
@@ -449,7 +621,7 @@ def rfcmim(
     # PWell
     # ----------------
     pwell = c << gf.components.rectangle(
-        size=(length + 2*pwell_extension, width + 2*pwell_extension),
+        size=(length + 2 * pwell_extension, width + 2 * pwell_extension),
         layer=layer_pwell,
     )
     pwell.xmin = -pwell_extension
@@ -458,7 +630,10 @@ def rfcmim(
     # Metal 4
     # ----------------
     metal4_drawing = c << gf.components.rectangle(
-        size=(length + 2*activ_external_extension, width + 2*activ_external_extension),
+        size=(
+            length + 2 * activ_external_extension,
+            width + 2 * activ_external_extension,
+        ),
         layer=layer_metal4,
     )
     metal4_drawing.xmin = -activ_external_extension
@@ -468,24 +643,27 @@ def rfcmim(
     # Metal 5
     # ----------------
     metal5_drawing = c << gf.components.rectangle(
-        size=(length + 2*activ_external_extension, width + 2*activ_external_extension),
+        size=(
+            length + 2 * activ_external_extension,
+            width + 2 * activ_external_extension,
+        ),
         layer=layer_metal5,
     )
     metal5_drawing.xmin = -activ_external_extension
     metal5_drawing.ymin = -activ_external_extension
 
     metal5_internal = c << gf.components.rectangle(
-        size=(length + 2*metal5_extension, width + 2*metal5_extension),
+        size=(length + 2 * metal5_extension, width + 2 * metal5_extension),
         layer=layer_metal5,
     )
     metal5_internal.xmin = -metal5_extension
     metal5_internal.ymin = -metal5_extension
     c.add_polygon(
         [
-            (length + metal5_extension, width/2 + 1.5),
-            (length + metal5_extension, width/2 - 1.5),
-            (length + activ_external_extension, width/2 - 1.5),
-            (length + activ_external_extension, width/2 + 1.5),
+            (length + metal5_extension, width / 2 + 1.5),
+            (length + metal5_extension, width / 2 - 1.5),
+            (length + activ_external_extension, width / 2 - 1.5),
+            (length + activ_external_extension, width / 2 + 1.5),
         ],
         layer=layer_metal5,
     )
@@ -495,20 +673,23 @@ def rfcmim(
         layer=layer_metal5_pin,
     )
     metal5_pin.xmin = length + activ_internal_extension
-    metal5_pin.ymin = width/2 - 1.5
+    metal5_pin.ymin = width / 2 - 1.5
 
     # ----------------
     # Top Metal 1
     # ----------------
     top_metal1_drawing = c << gf.components.rectangle(
-        size=(length + 2*activ_external_extension, width + 2*activ_external_extension),
+        size=(
+            length + 2 * activ_external_extension,
+            width + 2 * activ_external_extension,
+        ),
         layer=layer_topmetal1,
     )
     top_metal1_drawing.xmin = -activ_external_extension
     top_metal1_drawing.ymin = -activ_external_extension
 
     top_metal1_internal = c << gf.components.rectangle(
-        size=(length - 2*cont_extension, width - 2*cont_extension),
+        size=(length - 2 * cont_extension, width - 2 * cont_extension),
         layer=layer_topmetal1,
     )
     top_metal1_internal.xmin = cont_extension
@@ -519,12 +700,15 @@ def rfcmim(
         layer=layer_topmetal1_pin,
     )
     top_metal1_pin.xmin = -activ_external_extension
-    top_metal1_pin.ymin = width/2 - 1.5
+    top_metal1_pin.ymin = width / 2 - 1.5
 
     # Add ports
     c.add_port(
         name="TIE",
-        center=(length/2, -activ_internal_extension/2 - activ_external_extension / 2),
+        center=(
+            length / 2,
+            -activ_internal_extension / 2 - activ_external_extension / 2,
+        ),
         width=activ_external_extension - activ_internal_extension,
         orientation=180,
         layer=layer_metal1_pin,
@@ -533,7 +717,10 @@ def rfcmim(
 
     c.add_port(
         name="MINUS",
-        center=(length + activ_internal_extension/2 + activ_external_extension/2, width/2),
+        center=(
+            length + activ_internal_extension / 2 + activ_external_extension / 2,
+            width / 2,
+        ),
         width=3.0,
         orientation=0,
         layer=layer_metal5_pin,
@@ -542,40 +729,44 @@ def rfcmim(
 
     c.add_port(
         name="PLUS",
-        center=(- activ_internal_extension/2 - activ_external_extension/2, width/2),
+        center=(
+            -activ_internal_extension / 2 - activ_external_extension / 2,
+            width / 2,
+        ),
         width=3.0,
         orientation=180,
         layer=layer_topmetal1_pin,
         port_type="electrical",
     )
 
-    # # Add ports
-    # c.add_port(
-    #     name="P1",
-    #     center=(-(bottom_plate_length / 2 + 1.0), 0),
-    #     width=2.0,
-    #     orientation=180,
-    #     layer=layer_metal4,
-    #     port_type="electrical",
-    # )
-
-    # c.add_port(
-    #     name="P2",
-    #     center=(length / 2 + 2.0, 0),
-    #     width=2.0,
-    #     orientation=0,
-    #     layer=layer_topmetal1,
-    #     port_type="electrical",
-    # )
-
-    # c.add_port(
-    #     name="GND",
-    #     center=(0, -shield_width / 2),
-    #     width=shield_length,
-    #     orientation=270,
-    #     layer=layer_metal3,
-    #     port_type="electrical",
-    # )
+    c.add_label("rfcmim", layer=layer_text, position=(length / 2, width + 2.0))
+    c.add_label(
+        "MINUS",
+        layer=layer_text,
+        position=(
+            length + activ_external_extension / 2 + activ_internal_extension / 2,
+            width / 2,
+        ),
+    )
+    c.add_label(
+        "PLUS",
+        layer=layer_text,
+        position=(
+            -activ_external_extension / 2 - activ_internal_extension / 2,
+            width / 2,
+        ),
+    )
+    c.add_label(
+        "TIE",
+        layer=layer_text,
+        position=(
+            length / 2,
+            -activ_external_extension / 2 - activ_internal_extension / 2,
+        ),
+    )
+    c.add_label(
+        f"C={round(capacitance * 1e15)}f", layer=layer_text, position=(length / 2, -2.0)
+    )
 
     # Add metadata
     c.info["model"] = model
@@ -597,7 +788,7 @@ if __name__ == "__main__":
 
     # Test the components
     width = 6.99
-    length = 8
+    length = 6.99
     # c0 = cells2.cmim(width=width, length=length)  # original
     # c1 = cmim(width=width, length=length)  # New
     # # c = gf.grid([c0, c1], spacing=100)
@@ -610,5 +801,5 @@ if __name__ == "__main__":
     c0_rf = cells2.rfcmim(width=width, length=length)  # original
     c1_rf = rfcmim(width=width, length=length)  # New
     # c = gf.grid([c0, c1], spacing=100)
-    c_rf = xor(c0_rf, c1_rf)
+    c_rf = xor(c0_rf, c1_rf, ignore_sliver_differences=True)
     c_rf.show()
