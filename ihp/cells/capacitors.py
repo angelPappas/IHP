@@ -9,23 +9,12 @@ from gdsfactory.typings import LayerSpec
 def cmim(
     width: float = 5.0,
     length: float = 5.0,
-    capacitance: float | None = None,
-    model: str = "cmim",
-    layer_metal5: LayerSpec = "Metal5drawing",
-    layer_mim: LayerSpec = "MIMdrawing",
-    layer_via_mim: LayerSpec = "Vmimdrawing",
-    layer_topmetal1: LayerSpec = "TopMetal1drawing",
 ) -> Component:
     """Create a MIM (Metal-Insulator-Metal) capacitor.
 
     Args:
         width: Width of the capacitor in micrometers.
         length: Length of the capacitor in micrometers.
-        capacitance: Target capacitance in fF (optional).
-        model: Device model name.
-        layer_metal5: Bottom plate metal layer.
-        layer_mim: MIM dielectric layer.
-        layer_topmetal1: Top metal layer.
 
     Returns:
         Component with MIM capacitor layout.
@@ -40,6 +29,12 @@ def cmim(
     bottom_plate_extension = 0.6  # Extracted from PDK
     cap_density = 1.5  # fF/um^2 (example value)
 
+    # Layers
+    layer_metal5: LayerSpec = "Metal5drawing"
+    layer_mim: LayerSpec = "MIMdrawing"
+    layer_via_mim: LayerSpec = "Vmimdrawing"
+    layer_topmetal1: LayerSpec = "TopMetal1drawing"
+
     # Validate dimensions
     width = max(width, mim_min_size)
     length = max(length, mim_min_size)
@@ -49,9 +44,8 @@ def cmim(
     width = round(width / grid) * grid
     length = round(length / grid) * grid
 
-    # Calculate capacitance if not provided
-    if capacitance is None:
-        capacitance = width * length * cap_density
+    # Calculate capacitance
+    capacitance = width * length * cap_density
 
     # Bottom plate (Metal4)
     bottom_plate_width = width + 2 * bottom_plate_extension
@@ -145,7 +139,7 @@ def cmim(
     )
 
     # Add metadata
-    c.info["model"] = model
+    c.info["model"] = "cmim"
     c.info["width"] = width
     c.info["length"] = length
     c.info["capacitance_fF"] = capacitance
@@ -363,23 +357,6 @@ def rfcmim(
     width: float = 6.99,
     length: float = 6.99,
     capacitance: float | None = None,
-    model: str = "rfcmim",
-    layer_activ: LayerSpec = "Activdrawing",
-    layer_cont: LayerSpec = "Contdrawing",
-    layer_metal1: LayerSpec = "Metal1drawing",
-    layer_metal1_pin: LayerSpec = "Metal1pin",
-    layer_metal2: LayerSpec = "Metal2drawing",
-    layer_psd: LayerSpec = "pSDdrawing",
-    layer_metal3: LayerSpec = "Metal3drawing",
-    layer_mim: LayerSpec = "MIMdrawing",
-    layer_pwell: LayerSpec = "PWelldrawing",
-    layer_metal4: LayerSpec = "Metal4drawing",
-    layer_text: LayerSpec = "TEXTdrawing",
-    layer_metal5: LayerSpec = "Metal5drawing",
-    layer_metal5_pin: LayerSpec = "Metal5pin",
-    layer_topmetal1: LayerSpec = "TopMetal1drawing",
-    layer_topmetal1_pin: LayerSpec = "TopMetal1pin",
-    layer_via_mim: LayerSpec = "Vmimdrawing",
     feed_width: float = 3,
 ) -> Component:
     """Create an RF MIM capacitor with optimized layout.
@@ -388,16 +365,6 @@ def rfcmim(
         width: Width of the capacitor in micrometers.
         length: Length of the capacitor in micrometers.
         capacitance: Target capacitance in fF (optional).
-        model: Device model name.
-        layer_metal3: Ground shield metal layer.
-        layer_metal4: Bottom plate metal layer.
-        layer_metal5: Top plate metal layer.
-        layer_mim: MIM dielectric layer.
-        layer_via4: Via layer for top plate connection.
-        layer_topmetal1: Top metal layer for connections.
-        layer_topvia1: Via to top metal layer.
-        layer_rfpad: RF pad marker layer.
-        layer_cap_mark: Capacitor marker layer.
         feed_width: Width of the port for both plates of the capacitor.
 
     Returns:
@@ -421,6 +388,23 @@ def rfcmim(
     caspec = 1.5e-15  # Value from cni.sg13g2.json
     cpspec = 4.0e-17  # Value from cni.sg13g2.json
     lwd = 0.01  # um. Value from cni.sg13g2.json
+
+    layer_activ: LayerSpec = "Activdrawing"
+    layer_cont: LayerSpec = "Contdrawing"
+    layer_metal1: LayerSpec = "Metal1drawing"
+    layer_metal1_pin: LayerSpec = "Metal1pin"
+    layer_metal2: LayerSpec = "Metal2drawing"
+    layer_psd: LayerSpec = "pSDdrawing"
+    layer_metal3: LayerSpec = "Metal3drawing"
+    layer_mim: LayerSpec = "MIMdrawing"
+    layer_pwell: LayerSpec = "PWelldrawing"
+    layer_metal4: LayerSpec = "Metal4drawing"
+    layer_text: LayerSpec = "TEXTdrawing"
+    layer_metal5: LayerSpec = "Metal5drawing"
+    layer_metal5_pin: LayerSpec = "Metal5pin"
+    layer_topmetal1: LayerSpec = "TopMetal1drawing"
+    layer_topmetal1_pin: LayerSpec = "TopMetal1pin"
+    layer_via_mim: LayerSpec = "Vmimdrawing"
 
     # Grid snap
     grid = 0.005
@@ -811,7 +795,7 @@ def rfcmim(
     )
 
     # Add metadata
-    c.info["model"] = model
+    c.info["model"] = "rfcmim"
     c.info["width"] = width
     c.info["length"] = length
     c.info["capacitance_fF"] = capacitance
